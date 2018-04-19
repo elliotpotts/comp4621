@@ -1,0 +1,13 @@
+cxxflags = -g -Wall -Werror -std=c++17 -DCCNI_WINDOWS -fdiagnostics-color
+cxxincludes = -Iinclude
+cxxlibs = 
+
+rule cxx
+  command = g++-7 $cxxflags $cxxincludes -c $in -o $out
+
+rule link
+  command = g++-7 $in $cxxlibs -o $out
+
+build obj/main.o: cxx src/main.cpp
+
+build a.out: link obj/main.o
