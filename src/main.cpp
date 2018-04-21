@@ -36,6 +36,7 @@ class tcp_socket {
     public:
     tcp_socket(int connected) : fd(connected), data_begin(begin(buffer)), data_end(begin(buffer)) {
     };
+    // Received data until a crlf is found. Return the data excluding the crlf
     std::string recvline() {
         std::ostringstream line;
         auto line_end = std::search(data_begin, data_end, begin(crlf), end(crlf));
@@ -61,10 +62,63 @@ class tcp_socket {
     }
 };
 
+/*namespace method {
+    #define decl_method(m) struct m { std::string str = #m; }; 
+    decl_method(OPTIONS)
+    decl_method(GET)
+}*/
+
+using namespace std::literals::string_literals;
+std::array allowed_methods = {
+    "OPTIONS"s, "GET"s, "HEAD"s, "POST"s, "PUT"s, "DELETE"s, "TRACE"s, "CONNECT"s
+};
+
+std::string supported_version = "HTTP/1.1";
+
+struct http_request {
+    std::string method;
+    std::string uri;
+    byte_buf body;
+};
+
+struct http_response {
+    int code;
+    static http_response bad_request() { return {400}; }
+    static http_response version_not_supported() { return {505}; }
+};
+
+// Receive a http request from a client via tcp socket
+http_request recv_request(tcp_socket& sock) {
+    std::string reqln = sock.recvline();
+    auto reqln_end = end(reqln);
+
+    auto method_start = begin(reqln);
+    auto method_end = std::find(method_start, reqln_end, ' ');
+    if(method_end == reqln_end) throw http_response::bad_request();
+
+    auto req_uri_start = method_end + 1;
+    auto req_uri_end = std::find(req_uri_start, reqln_end, ' ');
+    if(req_uri_end == reqln_end) throw http_response::bad_request();
+
+    auto version_start = req_uri_end + 1;
+    auto version_end = reqln_end;
+    if(!std::equal(version_start, version_end, begin(supported_version), end(supported_version))) throw http_response::version_not_supported();
+
+    return {
+        {method_start, method_end},
+        {req_uri_start, req_uri_end}
+    };
+}
+
 class http_server {
     int fd;
     void handle_client(tcp_socket&& client) {
-        std::cout << client.recvline() << std::endl;
+        try {
+            auto req = recv_request(client);
+            std::cout << "[" << req.method << "] [" << req.uri << "]" << std::endl;
+        } catch (const http_response& err) {
+            std::cout << "Something went wrong: " << err.code << std::endl;
+        }
     }
     public:
     http_server() : fd(::socket(AF_INET, SOCK_STREAM, 0)) {
