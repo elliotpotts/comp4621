@@ -11,10 +11,14 @@ void errmaybe(int);
 
 void http::server::handle_client(http::socket&& client) {
     try {
-        std::cout << "Got client\n";
+        std::cout << "We got a live one!\n";
         auto req = http::recv_request(client);
-        std::cout << "[" << req.method << "] [" << req.uri << "]" << std::endl;
+        http::response res = {
+            200, "Hello, World!"
+        };
+        http::send_response(client, res);
     } catch (const http::response& err) {
+        http::send_response(client, err);
         std::cout << "Something went wrong: " << err.code << std::endl;
     }
 }

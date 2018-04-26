@@ -30,6 +30,15 @@ std::string http::socket::recvline() {
     data_begin = line_end + crlf.size();
     return line.str();
 }
+
+void http::socket::send_all(const unsigned char* start, ssize_t size) {
+    while(size > 0) {
+        ssize_t sent = ::send(fd, start, size, 0);
+        errmaybe(sent);
+        size -= sent;
+    }
+}
+
 http::socket::~socket() {
     ::close(fd);
 }

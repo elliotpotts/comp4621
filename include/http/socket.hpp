@@ -1,6 +1,7 @@
 #ifndef COMP4621_TCP_SOCKET_HPP_INCLUDED
 #define COMP4621_TCP_SOCKET_HPP_INCLUDED
 #include <array>
+#include <sys/types.h>
 namespace http {
     const std::string crlf = "\r\n";
 
@@ -16,6 +17,7 @@ namespace http {
         public:
         socket(int connected);
         std::string recvline();
+        void send_all(const unsigned char* start, ssize_t size);
         ~socket();
     };
 }
