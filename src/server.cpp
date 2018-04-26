@@ -11,7 +11,7 @@ void errmaybe(int);
 
 void http::server::handle_client(http::socket&& client) {
     try {
-        std::cout << "We got a live one!\n";
+        std::cout << "Thread #" << std::this_thread::get_id() << " handling new client\n";
         auto req = http::recv_request(client);
         http::response res = {
             200, "Hello, World!"
@@ -23,14 +23,14 @@ void http::server::handle_client(http::socket&& client) {
     }
 }
 
-http::server::server(short port) : fd(::socket(AF_INET, SOCK_STREAM, 0)) {
+http::server::server(short port) : fd(::socket(AF_INET, SOCK_STREAM, 0)), workers(backlog) {
     errmaybe(fd);
     int enable_reuse = 1;
     errmaybe(setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable_reuse, sizeof(enable_reuse)));
     const sockaddr_in listen_address = {
-        AF_INET,           // sin_family
+        AF_INET,      // sin_family
         htons(port),  // sin_port
-        INADDR_ANY         // sin_addr
+        INADDR_ANY    // sin_addr
     };
     errmaybe(::bind(fd, reinterpret_cast<const sockaddr*>(&listen_address), sizeof(listen_address)));
     errmaybe(::listen(fd, backlog));
@@ -46,6 +46,8 @@ void http::server::serve_forever() {
         socklen_t addrlen = sizeof(client_addr);
         int clientfd = ::accept(fd, reinterpret_cast<sockaddr*>(&client_addr), &addrlen);
         errmaybe(clientfd);
-        handle_client({clientfd});
+        workers.post_task([clientfd,this](){
+            handle_client({clientfd});
+        });
     }
 }

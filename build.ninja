@@ -1,6 +1,6 @@
-cxxflags = -g -Wall -Werror -std=c++17 -DCCNI_WINDOWS -fdiagnostics-color
+cxxflags = -g -Wall -Werror -std=c++17 -fdiagnostics-color
 cxxincludes = -Iinclude
-cxxlibs = 
+cxxlibs = -pthread
 
 rule cxx
   command = g++-7 $cxxflags $cxxincludes -c $in -o $out
