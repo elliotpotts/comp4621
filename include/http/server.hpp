@@ -1,6 +1,8 @@
 #ifndef COMP4621_SERVER_HPP_INCLUDED
 #define COMP4621_SERVER_HPP_INCLUDED
 #include <http/threadpool.hpp>
+#include <http/response.hpp>
+#include <http/request.hpp>
 namespace http {
     struct socket;
     class server {
@@ -8,10 +10,13 @@ namespace http {
         int fd;
         threadpool workers;
         void handle_client(socket&& client);
+
+        protected:
+        virtual response handle_request(request);
         
         public:
         server(short port);
-        ~server();
+        virtual ~server();
         void serve_forever();
     };
 }

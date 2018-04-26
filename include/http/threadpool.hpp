@@ -47,6 +47,7 @@ namespace http {
         }
 
         ~threadpool() {
+            if(tasks.size() > 0) finish_all();
             for(auto& w : workers) {
                 w.detach();
             }

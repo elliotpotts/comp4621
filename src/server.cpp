@@ -13,14 +13,16 @@ void http::server::handle_client(http::socket&& client) {
     try {
         std::cout << "Thread #" << std::this_thread::get_id() << " handling new client\n";
         auto req = http::recv_request(client);
-        http::response res = {
-            200, "Hello, World!"
-        };
+        http::response res = handle_request(req);
         http::send_response(client, res);
     } catch (const http::response& err) {
         http::send_response(client, err);
         std::cout << "Something went wrong: " << err.code << std::endl;
     }
+}
+
+http::response http::server::handle_request(http::request req) {
+    return {200, "Hello, World!"};
 }
 
 http::server::server(short port) : fd(::socket(AF_INET, SOCK_STREAM, 0)), workers(backlog) {
