@@ -9,5 +9,8 @@ rule link
   command = g++-7 $in $cxxlibs -o $out
 
 build obj/main.o: cxx src/main.cpp
+build obj/request.o: cxx src/request.cpp
+build obj/server.o: cxx src/server.cpp
+build obj/socket.o: cxx src/socket.cpp
 
-build a.out: link obj/main.o
+build a.out: link obj/main.o obj/request.o obj/socket.o obj/server.o

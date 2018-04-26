@@ -1,0 +1,22 @@
+#ifndef COMP4621_TCP_SOCKET_HPP_INCLUDED
+#define COMP4621_TCP_SOCKET_HPP_INCLUDED
+#include <array>
+namespace http {
+    const std::string crlf = "\r\n";
+
+    // Line-buffered tcp socket
+    class socket {
+        static const int buffer_size = 2048; // arbitraty
+        using byte_buf = std::array<char, buffer_size>;
+        int fd;
+        byte_buf buffer;
+        byte_buf::iterator data_begin;
+        byte_buf::iterator data_end;
+
+        public:
+        socket(int connected);
+        std::string recvline();
+        ~socket();
+    };
+}
+#endif
