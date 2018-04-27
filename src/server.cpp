@@ -21,8 +21,21 @@ void http::server::handle_client(http::socket&& client) {
     }
 }
 
+#include <fstream>
+#include <sstream>
 http::response http::server::handle_request(http::request req) {
-    return {200, "Hello, World!"};
+    std::stringstream uri_strm;
+    uri_strm << "srv" << req.uri;
+    std::cout << uri_strm.str() << std::endl;
+    std::fstream input{uri_strm.str()};
+    if(input.is_open()) {
+        return {200, {
+            std::istreambuf_iterator<char>{input},
+            std::istreambuf_iterator<char>{}
+        }};
+    } else {
+        return {404, "File not found :("};
+    }
 }
 
 http::server::server(short port) : fd(::socket(AF_INET, SOCK_STREAM, 0)), workers(backlog) {

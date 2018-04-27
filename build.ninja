@@ -1,6 +1,6 @@
 cxxflags = -g -Wall -Werror -std=c++17 -fdiagnostics-color
 cxxincludes = -Iinclude
-cxxlibs = -pthread
+cxxlibs = -pthread -lboost_system
 
 rule cxx
   command = g++-7 $cxxflags $cxxincludes -c $in -o $out
