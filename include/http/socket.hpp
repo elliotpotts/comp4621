@@ -1,6 +1,7 @@
 #ifndef COMP4621_TCP_SOCKET_HPP_INCLUDED
 #define COMP4621_TCP_SOCKET_HPP_INCLUDED
 #include <array>
+#include <optional>
 #include <sys/types.h>
 namespace http {
     const std::string crlf = "\r\n";
@@ -9,14 +10,14 @@ namespace http {
     class socket {
         static const int buffer_size = 2048; // arbitraty
         using byte_buf = std::array<char, buffer_size>;
-        int fd;
+        int sockfd;
         byte_buf buffer;
         byte_buf::iterator data_begin;
         byte_buf::iterator data_end;
 
         public:
         socket(int connected);
-        std::string recvline();
+        std::optional<std::string> recvline();
         void send_all(const unsigned char* start, ssize_t size);
         ~socket();
     };

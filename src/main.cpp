@@ -1,4 +1,4 @@
-#include <iostream>
+#include <boost/log/trivial.hpp>
 #include <http/server.hpp>
 #include <signal.h>
 
@@ -21,15 +21,16 @@ int main() {
     sa.sa_flags = 0;
     sa.sa_restorer = nullptr;
     errmaybe(sigaction(SIGINT, &sa, nullptr));
+    signal(SIGPIPE, SIG_IGN);
     
     // Start server
-    std::cout << "Listening...\n";
+    BOOST_LOG_TRIVIAL(info) << "Listening...";
     try {
         auto s = http::server{9999};
         s.serve_forever();
     } catch (const std::system_error& ex) {
         if (ex.code().value() == EINTR) {
-            std::cout << "Keyboard interrupt. Stopping server" << std::endl;
+            BOOST_LOG_TRIVIAL(info) << "Keyboard interrupt. Stopping server";
         } else {
             throw;
         }

@@ -5,12 +5,13 @@
 #include <sstream>
 #include <algorithm>
 #include <iterator>
+#include <boost/log/trivial.hpp>
 void errmaybe(int);
 
-http::socket::socket(int connected) : fd(connected), data_begin(begin(buffer)), data_end(begin(buffer)) {
+http::socket::socket(int connected) : sockfd(connected), buffer{0}, data_begin(begin(buffer)), data_end(data_begin) {
 };
 
-std::string http::socket::recvline() {
+std::optional<std::string> http::socket::recvline() {
     std::ostringstream line;
     auto line_end = std::search(data_begin, data_end, begin(crlf), end(crlf));
     // While we have not encountered a crlf in our buffer
@@ -19,8 +20,11 @@ std::string http::socket::recvline() {
         std::copy(data_begin, data_end, std::ostream_iterator<char>(line));
         // Read more data
         data_begin = begin(buffer);
-        int n = ::recv(fd, data_begin, buffer_size, 0);
+        int n = ::recv(sockfd, data_begin, buffer_size, 0);
         errmaybe(n);
+        if(n == 0) {
+            return std::nullopt;
+        }
         data_end = data_begin + n + 1;
         // Search for newline again
         line_end = std::search(data_begin, data_end, begin(crlf), end(crlf));
@@ -28,17 +32,18 @@ std::string http::socket::recvline() {
     //We've found a line, copy it
     std::copy(data_begin, line_end, std::ostream_iterator<char>(line));
     data_begin = line_end + crlf.size();
+    BOOST_LOG_TRIVIAL(info) << line.str();
     return line.str();
 }
 
 void http::socket::send_all(const unsigned char* start, ssize_t size) {
     while(size > 0) {
-        ssize_t sent = ::send(fd, start, size, 0);
+        ssize_t sent = ::send(sockfd, start, size, 0);
         errmaybe(sent);
         size -= sent;
     }
 }
 
 http::socket::~socket() {
-    ::close(fd);
+    ::close(sockfd);
 }

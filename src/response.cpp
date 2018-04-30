@@ -5,6 +5,7 @@
 void http::send_response(http::socket& sock, http::response r) {
     std::ostringstream sstr;
     sstr << "HTTP/1.1 " << r.code << "[ReasonHere]\r\n";
+    sstr << "Content-Length:" << r.body.size() << "\r\n";
     sstr << "\r\n";
     sstr << r.body;
     std::string bytes = sstr.str();

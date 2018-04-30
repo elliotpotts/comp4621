@@ -2,6 +2,7 @@
 #define COMP4621_REQUEST_HPP_INCLUDED
 #include <string>
 #include <unordered_map>
+#include <optional>
 namespace http {
     struct socket;
     struct request {
@@ -11,6 +12,6 @@ namespace http {
         std::unordered_map<std::string, std::string> headers;
         std::string body;
     };
-    request recv_request(socket& sock);
+    std::optional<request> recv_request(socket& sock);
 }
 #endif

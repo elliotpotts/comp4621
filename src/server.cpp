@@ -6,18 +6,43 @@
 #include <unistd.h>
 #include <http/request.hpp>
 #include <http/response.hpp>
-#include <iostream>
+#include <boost/log/trivial.hpp>
+#include <utility>
 void errmaybe(int);
 
 void http::server::handle_client(http::socket&& client) {
     try {
-        std::cout << "Thread #" << std::this_thread::get_id() << " handling new client\n";
-        auto req = http::recv_request(client);
-        http::response res = handle_request(req);
-        http::send_response(client, res);
+        BOOST_LOG_TRIVIAL(info) << "Thread #" << std::this_thread::get_id() << " handling new client";
+        bool keep_alive = true;
+        do {
+            std::optional<http::request> maybe_req = http::recv_request(client);
+            if(!maybe_req) {
+                BOOST_LOG_TRIVIAL(error) << "Failed to read request from new connection";
+            }
+            http::request& req = *maybe_req;
+            // Now consider
+            // * Should we keep-alive the connection?
+            //     Yes, unless Connection: close
+            // * What is the transfer-encoding?
+            //     We should support chunked
+            // * What is the content-encoding?
+            //     We should support gzip
+            // * Which language should be sent?
+            // These questions make up the "content negotiation algorithm"
+
+            // For debug purposes:
+            BOOST_LOG_TRIVIAL(info) << req.method << " " << req.uri << " " << req.version;
+            for(auto pair : req.headers) {
+                BOOST_LOG_TRIVIAL(info) << pair.first << ":" << pair.second;
+            }
+            
+            http::response res = handle_request(req);
+            BOOST_LOG_TRIVIAL(info) << "-------";
+            http::send_response(client, res);
+        } while (keep_alive);
     } catch (const http::response& err) {
         http::send_response(client, err);
-        std::cout << "Something went wrong: " << err.code << std::endl;
+        BOOST_LOG_TRIVIAL(error) << "Something went wrong: " << err.code;
     }
 }
 
@@ -26,7 +51,6 @@ void http::server::handle_client(http::socket&& client) {
 http::response http::server::handle_request(http::request req) {
     std::stringstream uri_strm;
     uri_strm << "srv" << req.uri;
-    std::cout << uri_strm.str() << std::endl;
     std::fstream input{uri_strm.str()};
     if(input.is_open()) {
         return {200, {

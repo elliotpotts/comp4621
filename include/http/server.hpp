@@ -6,7 +6,7 @@
 namespace http {
     struct socket;
     class server {
-        static const int backlog = 128; // arbitrary
+        static const int backlog = 1;
         int fd;
         threadpool workers;
         void handle_client(socket&& client);
