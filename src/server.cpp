@@ -18,8 +18,10 @@ void http::server::handle_client(http::socket&& client) {
             std::optional<http::request> maybe_req = http::recv_request(client);
             if(!maybe_req) {
                 BOOST_LOG_TRIVIAL(error) << "Failed to read request from new connection";
+                return;
             }
             http::request& req = *maybe_req;
+            keep_alive = req.headers["Connection"] != "close";
             // Now consider
             // * Should we keep-alive the connection?
             //     Yes, unless Connection: close
@@ -31,7 +33,7 @@ void http::server::handle_client(http::socket&& client) {
             // These questions make up the "content negotiation algorithm"
 
             // For debug purposes:
-            BOOST_LOG_TRIVIAL(info) << req.method << " " << req.uri << " " << req.version;
+            BOOST_LOG_TRIVIAL(info) << req.method << " " << req.uri << " " << req.version   ;
             for(auto pair : req.headers) {
                 BOOST_LOG_TRIVIAL(info) << pair.first << ":" << pair.second;
             }

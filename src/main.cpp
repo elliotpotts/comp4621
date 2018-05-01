@@ -8,19 +8,9 @@ void errmaybe(int return_val) {
     }
 }
 
-void handle_signal(int) {
-    // Do nothing, we'll just handle the exception thrown
-    // when the next "system call" returns EINTR
-}
-
 int main() {
-    // Install signal handler for SIGINT aka keyboard interrupt
-    struct sigaction sa;
-    sa.sa_handler = handle_signal;
-    //sa.sa_mask = 0;
-    sa.sa_flags = 0;
-    sa.sa_restorer = nullptr;
-    errmaybe(sigaction(SIGINT, &sa, nullptr));
+    // Ignore "broken pipe" signals (ie unexpected socket closures)
+    // They are handled correctly in networking code.
     signal(SIGPIPE, SIG_IGN);
     
     // Start server
