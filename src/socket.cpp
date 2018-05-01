@@ -25,14 +25,13 @@ std::optional<std::string> http::socket::recvline() {
         if(n == 0) {
             return std::nullopt;
         }
-        data_end = data_begin + n + 1;
+        data_end = data_begin + n;
         // Search for newline again
         line_end = std::search(data_begin, data_end, begin(crlf), end(crlf));
     }
     //We've found a line, copy it
     std::copy(data_begin, line_end, std::ostream_iterator<char>(line));
     data_begin = line_end + crlf.size();
-    BOOST_LOG_TRIVIAL(info) << line.str();
     return line.str();
 }
 
