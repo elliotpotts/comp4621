@@ -1,9 +1,11 @@
 #include <boost/log/trivial.hpp>
 #include <http/server.hpp>
 #include <signal.h>
+#include <csignal>
 
 void errmaybe(int return_val) {
     if(return_val < 0 && errno > 0) {
+        std::raise(SIGINT);        
         throw std::system_error(errno, std::generic_category());
     }
 }

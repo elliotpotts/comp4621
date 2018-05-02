@@ -1,22 +1,16 @@
 #ifndef COMP4621_SERVER_HPP_INCLUDED
 #define COMP4621_SERVER_HPP_INCLUDED
-#include <http/threadpool.hpp>
-#include <http/response.hpp>
-#include <http/request.hpp>
+#include <http/worker_pool.hpp>
+#include <http/session.hpp>
 namespace http {
     struct socket;
     class server {
-        static const int backlog = 4;
-        int fd;
-        threadpool workers;
-        void handle_client(socket&& client);
+        int sockfd;
+        worker_pool<session> workers;
 
-        protected:
-        virtual response handle_request(request);
-        
         public:
-        server(short port);
-        virtual ~server();
+        server(short port, int n_threads = 4);
+        ~server();
         void serve_forever();
     };
 }

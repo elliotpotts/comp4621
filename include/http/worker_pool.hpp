@@ -1,5 +1,5 @@
-#ifndef COMP4621_THREADPOOL_HPP_INCLUDED
-#define COMP4621_THREADPOOL_HPP_INCLUDED
+#ifndef COMP4621_WORKER_POOL_HPP_INCLUDED
+#define COMP4621_WORKER_POOL_HPP_INCLUDED
 #include <vector>
 #include <thread>
 #include <condition_variable>
@@ -7,12 +7,15 @@
 #include <future>
 #include <mutex>
 #include <atomic>
+
 namespace http {
-    class threadpool {
-        std::vector<std::thread> workers;
+    template<typename T>
+    class worker_pool {
+        std::vector<T> workers;
+        std::vector<std::thread> threads;
         
         // Tasks
-        std::deque<std::packaged_task<void()>> tasks;
+        std::deque<std::packaged_task<void(T&)>> tasks;
         std::condition_variable task_available;
         std::mutex task_mutex;
         
@@ -22,19 +25,19 @@ namespace http {
         std::mutex finish_mutex;
         
         public:
-        threadpool(int n_threads) {
-            workers.reserve(n_threads);
+        worker_pool(int n_threads) : workers(n_threads) {
+            threads.reserve(n_threads);
             for(int i = 0; i < n_threads; i++) {
-                workers.emplace_back([&](){
+                threads.emplace_back([i, this](){
                     while(true) {
-                        std::packaged_task<void()> current_task;
+                        std::packaged_task<void(T&)> current_task;
                         {
                             std::unique_lock<std::mutex> lock(task_mutex);
                             task_available.wait(lock, [&](){ return tasks.size() > 0;});
                             current_task = std::move(tasks.front());
                             tasks.pop_front();
                         }
-                        current_task();
+                        current_task(workers[i]);
                         tasks_left--;
                         if(tasks_left.load() == 0) {
                             std::lock_guard<std::mutex> lock(finish_mutex);
@@ -46,10 +49,10 @@ namespace http {
             tasks_left.store(0);
         }
 
-        ~threadpool() {
+        ~worker_pool() {
             if(tasks.size() > 0) finish_all();
-            for(auto& w : workers) {
-                w.detach();
+            for(auto& t : threads) {
+                t.detach();
             }
         }
         
@@ -58,10 +61,12 @@ namespace http {
             finished.wait(lock, [&](){ return tasks.size() == 0;});
         }
 
-        template<typename F>
-        void post_task(F&& f) {
+        template<typename... ArgTs>
+        void post_task(ArgTs&&... args) {
             std::lock_guard<std::mutex> lock(task_mutex);
-            tasks.emplace_back(std::forward<F>(f));
+            tasks.emplace_back([args = std::make_tuple(std::forward<ArgTs>(args)...)](T& worker){
+                std::apply(worker, std::move(args));
+            });
             tasks_left++;
             task_available.notify_one();
         }
