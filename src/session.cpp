@@ -220,7 +220,7 @@ http::response serve_index(fs::path path) {
     << "<html><head><title>Index of " << path << "</title>"
     << "<link rel=\"stylesheet\" type=\"text/css\" href=\"/fonts/css/fontello.css\">"
     << "</head><body><ol>"
-    << "<li><i class=\"icon-reply\"></i><a href=\"../\">Parent Folder</a></li>"
+    << "<li><a href=\"../\"><i class=\"icon-reply\"></i>Parent Folder</a></li>"
     ;
     for(auto [it, end] = std::tuple {
         fs::directory_iterator{path},
