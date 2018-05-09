@@ -18,7 +18,7 @@ int main() {
     // Start server
     BOOST_LOG_TRIVIAL(info) << "Listening...";
     try {
-        auto s = http::server{9999};
+        auto s = http::server{9999, 1};
         s.serve_forever();
     } catch (const std::system_error& ex) {
         if (ex.code().value() == EINTR) {

@@ -34,7 +34,7 @@ std::optional<std::string> http::session::recv_line() {
         // Read more data
         data_begin = begin(buffer);
         int n = ::recv(sockfd, data_begin, buffer_size, 0);
-        errmaybe(n);
+        errmaybe(n); //TODO: deal with 104 (connection reset by peer)
         if(n == 0) {
             return std::nullopt;
         }
@@ -100,6 +100,7 @@ std::optional<http::request> http::session::recv_request() {
 void http::session::send_response(http::response r) {
     std::ostringstream sstr;
     sstr << "HTTP/1.1 " << r.code << "[ReasonHere]\r\n";
+    sstr << "Content-Type: " << r.content_type << "\r\n";
     sstr << "Content-Length:" << r.body.size() << "\r\n";
     sstr << "\r\n";
     sstr << r.body;
@@ -163,16 +164,82 @@ void http::session::operator()(int fd) {
 
 #include <fstream>
 #include <sstream>
+#include <boost/filesystem.hpp>
+namespace fs = boost::filesystem;
+http::response serve_file(fs::path, std::fstream&);
+http::response serve_index(fs::path);
+fs::path root = "www";
+
 http::response handle_request(http::request req) {
-    std::stringstream uri_strm;
-    uri_strm << "srv" << req.uri;
-    std::fstream input{uri_strm.str()};
+    fs::path req_path = root;
+    req_path += req.uri;
+    BOOST_LOG_TRIVIAL(info) << req_path.string();
+    std::fstream input{req_path.string()};
     if(input.is_open()) {
-        return {200, {
-            std::istreambuf_iterator<char>{input},
-            std::istreambuf_iterator<char>{}
-        }};
+        return serve_file(req_path, input);
+    } else if (fs::is_directory(req_path)) {
+        return serve_index(req_path);
     } else {
-        return {404, "File not found :("};
+        return {404, "text/plain; charset=utf-8", "File not found :("};
     }
+}
+
+std::string get_content_type(fs::path path) {
+    auto e = path.extension();
+    if      (e == ".css")   return "text/css";
+    else if (e == ".html")  return "text/html";
+    else if (e == ".eot")   return "application/vnd.ms-fontobject";
+    else if (e == ".svg")   return "image/svg+xml";
+    else if (e == ".ttf")   return "font/ttf";
+    else if (e == ".woff")  return "font/woff";
+    else if (e == ".woff2") return "font/woff2";
+    else if (e == ".webm")  return "video/webm";
+    else return "text/plain";
+}
+
+std::string get_icon(fs::path path) {
+    auto e = path.extension();
+    if      (e == ".css" || e == ".html" || e == ".json" || e == ".cpp") return "icon-file-code";
+    else if (e == ".webm")  return "icon-file-video";
+    else if (e == ".pdf")   return "icon-file-pdf";
+    else if (e == ".png" || e == ".jpg") return "icon-file-image";
+    else if (e == ".txt") return "icon-doc-text";
+    else return "icon-doc";
+}
+
+http::response serve_file(fs::path p, std::fstream& stream) {
+    return {200, get_content_type(p), {
+        std::istreambuf_iterator<char>{stream},
+        std::istreambuf_iterator<char>{}
+    }};
+}
+
+http::response serve_index(fs::path path) {
+    std::stringstream body;
+    body << "<!DOCTYPE html>\n"
+    << "<html><head><title>Index of " << path << "</title>"
+    << "<link rel=\"stylesheet\" type=\"text/css\" href=\"/fonts/css/fontello.css\">"
+    << "</head><body><ol>"
+    << "<li><i class=\"icon-reply\"></i><a href=\"../\">Parent Folder</a></li>"
+    ;
+    for(auto [it, end] = std::tuple {
+        fs::directory_iterator{path},
+        fs::directory_iterator{}
+    }; it != end; it++) {
+        fs::path child_path = "./";
+        child_path += fs::relative(it->path(), path);
+        std::string icon_class;
+        if(fs::is_directory(it->path())) {
+            child_path += fs::path::preferred_separator;
+            icon_class = "icon-folder-empty";
+        } else {
+            icon_class = get_icon(it->path());
+        }
+        body << "<li><a href=" << child_path << ">" // open
+        << "<i class=\"" << icon_class << "\"></i>" // icon
+        << it->path().filename().string() // link text
+        << "</a>\n" << "</li>"; // close
+    }
+    body << "</ol></body>";
+    return {200, "text/html; charset=utf-8", body.str()};
 }
