@@ -4,6 +4,7 @@
 namespace http {
     struct response {
         int code;
+        std::string reason;
         std::string content_type;
         std::string body;
     };

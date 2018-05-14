@@ -22,6 +22,8 @@ using namespace std::literals::string_literals;
 static const char header_kv_delim = ':';
 static const auto http11 = "HTTP/1.1"s;
 
+// Receives a line from the client, or returns empty if 
+// the socket has been orderly shutdown.
 std::optional<std::string> http::session::recv_line() {
     std::ostringstream line;
     auto line_end = std::search(data_begin, data_end, begin(crlf), end(crlf));
@@ -32,6 +34,7 @@ std::optional<std::string> http::session::recv_line() {
         // Read more data
         data_begin = begin(buffer);
         int n = ::recv(sockfd, data_begin, buffer_size, 0);
+        BOOST_LOG_TRIVIAL(info) << "        recv'd " << n << " from fd #" << sockfd;
         errmaybe(n); //TODO: deal with 104 (connection reset by peer)
         if(n == 0) {
             return std::nullopt;
@@ -49,11 +52,15 @@ std::optional<std::string> http::session::recv_line() {
 void http::session::send_all(const unsigned char* start, ssize_t size) {
     while(size > 0) {
         ssize_t sent = ::send(sockfd, start, size, 0);
+        BOOST_LOG_TRIVIAL(info) << "        sent " << sent << " from fd #" << sockfd;
         errmaybe(sent);
         size -= sent;
     }
+    BOOST_LOG_TRIVIAL(info) << "        fd #" << sockfd << " finished sending this chunk";
 }
 
+// Receives a request from the client, or returns empty if 
+// the socket has been orderly shutdown.
 std::optional<http::request> http::session::recv_request() {
     std::optional<std::string> maybe_reqln = recv_line();
     if(!maybe_reqln) {
@@ -97,7 +104,7 @@ std::optional<http::request> http::session::recv_request() {
 
 void http::session::send_response(http::response r) {
     std::ostringstream sstr;
-    sstr << "HTTP/1.1 " << r.code << "[ReasonHere]\r\n";
+    sstr << "HTTP/1.1 " << r.code << " " << r.reason << "\r\n";
     sstr << "Content-Type: " << r.content_type << "\r\n";
     sstr << "Content-Length:" << r.body.size() << "\r\n";
     sstr << "\r\n";
@@ -107,9 +114,11 @@ void http::session::send_response(http::response r) {
         reinterpret_cast<const unsigned char*>(bytes.data()),
         static_cast<ssize_t>(bytes.size())
     );
+    BOOST_LOG_TRIVIAL(info) << "        fd #" << sockfd << " finished sending this response";
 }
 
 http::response handle_request(http::request req);
+// HTTP "Main Loop"
 void http::session::operator()(int fd) {
     using std::begin;
     using std::end;
@@ -125,29 +134,19 @@ void http::session::operator()(int fd) {
         do {
             std::optional<http::request> maybe_req = recv_request();
             if(!maybe_req) {
-                BOOST_LOG_TRIVIAL(error) << "Failed to read request from new connection";
+                ::shutdown(sockfd, SHUT_RDWR);
+                ::close(sockfd);
+                BOOST_LOG_TRIVIAL(info) << "        closed fd #" << sockfd;
                 return;
             }
             http::request& req = *maybe_req;
             keep_alive = req.headers["Connection"] != "close";
-            // Now consider
-            // * Should we keep-alive the connection?
-            //     Yes, unless Connection: close
-            // * What is the transfer-encoding?
-            //     We should support chunked
-            // * What is the content-encoding?
-            //     We should support gzip
-            // * Which language should be sent?
-            // These questions make up the "content negotiation algorithm"
-
-            // For debug purposes:
             BOOST_LOG_TRIVIAL(info) << req.method << " " << req.uri << " " << req.version   ;
             for(auto pair : req.headers) {
-                BOOST_LOG_TRIVIAL(info) << pair.first << ":" << pair.second;
+                BOOST_LOG_TRIVIAL(info) << "    " << pair.first << ":" << pair.second;
             }
-            
             http::response res = handle_request(req);
-            BOOST_LOG_TRIVIAL(info) << "-------";
+            BOOST_LOG_TRIVIAL(info) << "---------------------------";
             send_response(res);
         } while (keep_alive);
     } catch (const http::response& err) {
@@ -184,9 +183,8 @@ http::response handle_request(http::request req) {
     auto requested_path = fs::path{req.uri}.lexically_normal();
     try {        
         auto mapped_path = chroot_map(requested_path, "www");
+        BOOST_LOG_TRIVIAL(info) << "* Mapping request to " << *mapped_path;
         if(mapped_path) {
-            BOOST_LOG_TRIVIAL(info) << "Requested: " << requested_path;
-            BOOST_LOG_TRIVIAL(info) << "   Mapped: " << *mapped_path;
             std::fstream input{*mapped_path};
             if(input.is_open()) {
                 return http::serve_file(requested_path, input);
@@ -196,10 +194,11 @@ http::response handle_request(http::request req) {
                 return http::serve_404(requested_path);
             }
         } else {
-            return {403, "text/plain; charset=utf-8", "403 Forbidden"};
+            return {403, "Forbidden", "text/plain; charset=utf-8", "403 Forbidden"};
         }
     } catch (const fs::filesystem_error& err) {
         if(err.code() == boost::system::errc::no_such_file_or_directory) {
+            BOOST_LOG_TRIVIAL(info) << "* No such file or directory (404)";
             return http::serve_404(requested_path);
         } else {
             throw;

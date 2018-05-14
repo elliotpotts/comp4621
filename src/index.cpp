@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <ctime>
 #include <fmt/format.h>
+#include <tuple>
 
 namespace fs = boost::filesystem;
 
@@ -32,7 +33,7 @@ std::string get_icon(fs::path path) {
 }
 
 http::response http::serve_file(fs::path p, std::fstream& stream) {
-    return {200, get_content_type(p), {
+    return {200, "OK", get_content_type(p), {
         std::istreambuf_iterator<char>{stream},
         std::istreambuf_iterator<char>{}
     }};
@@ -48,6 +49,7 @@ void write_file(std::string path, std::stringstream& to) {
 }
 
 static const std::string index_template = R"EOS(
+<!DOCTYPE html>
 <html>
     <head>
         <title>Index of {0}</title>
@@ -100,18 +102,44 @@ std::string format_row(fs::path path) {
 
 http::response http::serve_index(fs::path requested_path, fs::path mapped_path) {
     std::stringstream rows;
-    for(auto [it, end] = std::tuple {
+    std::vector<fs::directory_entry> entries;
+    std::copy(
         fs::directory_iterator{mapped_path},
-        fs::directory_iterator{}
-    }; it != end; it++) {
-        rows << format_row(*it);
+        fs::directory_iterator{},
+        std::back_inserter(entries)
+    );
+    std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs){
+        return std::make_tuple(!fs::is_directory(lhs), lhs.path().filename().string())
+             < std::make_tuple(!fs::is_directory(rhs), rhs.path().filename().string());
+    });
+    for(const auto& entry : entries) {
+        rows << format_row(entry);
     }
     return {
-        200, "text/html; charset=utf-8",
+        200, "OK", "text/html; charset=utf-8",
         fmt::format(index_template, requested_path.string(), rows.str())
     };
 }
 
-http::response http::serve_404(fs::path req_path) {
-    return {404, "text/plain; charset=utf-8", "File not found :("};
+static const std::string error_404_template = R"EOS(
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>404</title>
+        <link href="data:image/x-icon;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQEAYAAABPYyMiAAAABmJLR0T///////8JWPfcAAAACXBIWXMAAABIAAAASABGyWs+AAAAF0lEQVRIx2NgGAWjYBSMglEwCkbBSAcACBAAAeaR9cIAAAAASUVORK5CYII=" rel="icon" type="image/x-icon" />
+        <style>
+        html {{ font-family: monospace; sans-serif; }}
+        </style>
+    </head>
+    <body>
+        <h1>Could not find the file specified: {0}</h1>
+    </body>
+</html>
+)EOS";
+
+http::response http::serve_404(fs::path requested_path) {
+    return {
+        404, "File Not Found", "text/html; charset=utf-8",
+        fmt::format(error_404_template, requested_path.string())
+    };
 }

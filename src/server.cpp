@@ -3,6 +3,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <boost/log/trivial.hpp>
 void errmaybe(int);
 
 http::server::server(short port, int n_threads) : sockfd(::socket(AF_INET, SOCK_STREAM, 0)), workers(n_threads) {
@@ -27,6 +28,7 @@ void http::server::serve_forever() {
         sockaddr_in client_addr;
         socklen_t addrlen = sizeof(client_addr);
         int clientfd = ::accept(sockfd, reinterpret_cast<sockaddr*>(&client_addr), &addrlen);
+        BOOST_LOG_TRIVIAL(info) << "        accepted fd #" << clientfd;
         errmaybe(clientfd);
         workers.post_task(clientfd);
     }
