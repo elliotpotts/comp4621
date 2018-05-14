@@ -183,7 +183,7 @@ std::optional<fs::path> chroot_map(fs::path original, fs::path root) {
 http::response handle_request(http::request req) {
     auto requested_path = fs::path{req.uri}.lexically_normal();
     try {        
-        auto mapped_path = chroot_map(requested_path, "test");
+        auto mapped_path = chroot_map(requested_path, "www");
         if(mapped_path) {
             BOOST_LOG_TRIVIAL(info) << "Requested: " << requested_path;
             BOOST_LOG_TRIVIAL(info) << "   Mapped: " << *mapped_path;

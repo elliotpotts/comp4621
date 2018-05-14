@@ -94,7 +94,7 @@ std::string format_row(fs::path path) {
         path.filename().string(),
         is_dir ? "" : last_modified_string(path),
         is_dir ? "" : std::to_string(fs::file_size(path)),
-        "Document"
+        is_dir ? "Directory" : "Document"
     );
 }
 
@@ -108,7 +108,7 @@ http::response http::serve_index(fs::path requested_path, fs::path mapped_path) 
     }
     return {
         200, "text/html; charset=utf-8",
-        fmt::format(index_template, requested_path.parent_path().string(), rows.str())
+        fmt::format(index_template, requested_path.string(), rows.str())
     };
 }
 
