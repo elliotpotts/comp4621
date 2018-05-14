@@ -8,8 +8,9 @@
 #include <algorithm>
 #include <iterator>
 #include <boost/log/trivial.hpp>
-#include <system_error>
 #include <csignal>
+#include <http/index.hpp>
+#include <boost/system/error_code.hpp>
 
 void errmaybe(int);
 
@@ -20,9 +21,6 @@ using std::end;
 using namespace std::literals::string_literals;
 static const char header_kv_delim = ':';
 static const auto http11 = "HTTP/1.1"s;
-std::array implemented_methods = {
-    "OPTIONS"s, "GET"s, "HEAD"s, "POST"s, "PUT"s, "DELETE"s, "TRACE"s, "CONNECT"s
-};
 
 std::optional<std::string> http::session::recv_line() {
     std::ostringstream line;
@@ -157,89 +155,54 @@ void http::session::operator()(int fd) {
         BOOST_LOG_TRIVIAL(error) << "Something went wrong: " << err.code;
     } catch (const std::system_error& err) {
         BOOST_LOG_TRIVIAL(error) << "System error " << err.code() << ": " << err.what();
+    } catch (const std::exception& err) {
+        BOOST_LOG_TRIVIAL(error) << "Something went badly wrong: " << err.what();
     } catch (...) {
-        BOOST_LOG_TRIVIAL(error) << "Something went badly wrong.";
+        BOOST_LOG_TRIVIAL(error) << "Something went extremely wrong";
     }
 }
 
-#include <fstream>
-#include <sstream>
-#include <boost/filesystem.hpp>
 namespace fs = boost::filesystem;
-http::response serve_file(fs::path, std::fstream&);
-http::response serve_index(fs::path);
-fs::path root = "www";
+
+std::optional<fs::path> chroot_map(fs::path original, fs::path root) {
+    fs::path mapped = root;                    // "./rel_root"
+    mapped /= original;                        // "./rel_root/../../etc/passwd"
+    fs::path canon = fs::canonical(mapped);    // "/etc/passwd"
+    fs::path ceiling = fs::canonical(root);    // "/www/rel_root"
+    auto [first_mismatch, _] = std::mismatch (
+        ceiling.begin(), ceiling.end(),
+        canon.begin(), canon.end()
+    );
+    if(first_mismatch == ceiling.end()) {
+        return mapped;
+    } else {
+        return std::nullopt;
+    }
+}
 
 http::response handle_request(http::request req) {
-    fs::path req_path = root;
-    req_path += req.uri;
-    BOOST_LOG_TRIVIAL(info) << req_path.string();
-    std::fstream input{req_path.string()};
-    if(input.is_open()) {
-        return serve_file(req_path, input);
-    } else if (fs::is_directory(req_path)) {
-        return serve_index(req_path);
-    } else {
-        return {404, "text/plain; charset=utf-8", "File not found :("};
-    }
-}
-
-std::string get_content_type(fs::path path) {
-    auto e = path.extension();
-    if      (e == ".css")   return "text/css";
-    else if (e == ".html")  return "text/html";
-    else if (e == ".eot")   return "application/vnd.ms-fontobject";
-    else if (e == ".svg")   return "image/svg+xml";
-    else if (e == ".ttf")   return "font/ttf";
-    else if (e == ".woff")  return "font/woff";
-    else if (e == ".woff2") return "font/woff2";
-    else if (e == ".webm")  return "video/webm";
-    else return "text/plain";
-}
-
-std::string get_icon(fs::path path) {
-    auto e = path.extension();
-    if      (e == ".css" || e == ".html" || e == ".json" || e == ".cpp") return "icon-file-code";
-    else if (e == ".webm")  return "icon-file-video";
-    else if (e == ".pdf")   return "icon-file-pdf";
-    else if (e == ".png" || e == ".jpg") return "icon-file-image";
-    else if (e == ".txt") return "icon-doc-text";
-    else return "icon-doc";
-}
-
-http::response serve_file(fs::path p, std::fstream& stream) {
-    return {200, get_content_type(p), {
-        std::istreambuf_iterator<char>{stream},
-        std::istreambuf_iterator<char>{}
-    }};
-}
-
-http::response serve_index(fs::path path) {
-    std::stringstream body;
-    body << "<!DOCTYPE html>\n"
-    << "<html><head><title>Index of " << path << "</title>"
-    << "<link rel=\"stylesheet\" type=\"text/css\" href=\"/fonts/css/fontello.css\">"
-    << "</head><body><ol>"
-    << "<li><a href=\"../\"><i class=\"icon-reply\"></i>Parent Folder</a></li>"
-    ;
-    for(auto [it, end] = std::tuple {
-        fs::directory_iterator{path},
-        fs::directory_iterator{}
-    }; it != end; it++) {
-        fs::path child_path = "./";
-        child_path += fs::relative(it->path(), path);
-        std::string icon_class;
-        if(fs::is_directory(it->path())) {
-            child_path += fs::path::preferred_separator;
-            icon_class = "icon-folder-empty";
+    auto requested_path = fs::path{req.uri}.lexically_normal();
+    try {        
+        auto mapped_path = chroot_map(requested_path, "test");
+        if(mapped_path) {
+            BOOST_LOG_TRIVIAL(info) << "Requested: " << requested_path;
+            BOOST_LOG_TRIVIAL(info) << "   Mapped: " << *mapped_path;
+            std::fstream input{*mapped_path};
+            if(input.is_open()) {
+                return http::serve_file(requested_path, input);
+            } else if (fs::is_directory(*mapped_path)) {
+                return http::serve_index(requested_path, *mapped_path);
+            } else {
+                return http::serve_404(requested_path);
+            }
         } else {
-            icon_class = get_icon(it->path());
+            return {403, "text/plain; charset=utf-8", "403 Forbidden"};
         }
-        body << "<li><a href=" << child_path << ">" // open
-        << "<i class=\"" << icon_class << "\"></i>" // icon
-        << it->path().filename().string() // link text
-        << "</a>\n" << "</li>"; // close
+    } catch (const fs::filesystem_error& err) {
+        if(err.code() == boost::system::errc::no_such_file_or_directory) {
+            return http::serve_404(requested_path);
+        } else {
+            throw;
+        }
     }
-    body << "</ol></body>";
-    return {200, "text/html; charset=utf-8", body.str()};
 }
