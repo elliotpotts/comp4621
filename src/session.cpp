@@ -11,22 +11,21 @@
 #include <csignal>
 #include <http/index.hpp>
 #include <boost/system/error_code.hpp>
-
-void errmaybe(int);
+#include <boost/scope_exit.hpp>
+#include <http/error.hpp>
 
 static const std::string crlf = "\r\n";
-using std::begin;
-using std::end;
+static auto crlf_begin = crlf.begin();
+static auto crlf_end = crlf.end();
 
-using namespace std::literals::string_literals;
 static const char header_kv_delim = ':';
-static const auto http11 = "HTTP/1.1"s;
+static const std::string http11 = "HTTP/1.1";
 
 // Receives a line from the client, or returns empty if 
 // the socket has been orderly shutdown.
-std::optional<std::string> http::session::recv_line() {
+std::string http::session::recv_line() {
     std::ostringstream line;
-    auto line_end = std::search(data_begin, data_end, begin(crlf), end(crlf));
+    auto line_end = std::search(data_begin, data_end, crlf_begin, crlf_end);
     // While we have not encountered a crlf in our buffer
     while(line_end == data_end) {
         // Add what we have so far to our line
@@ -34,11 +33,9 @@ std::optional<std::string> http::session::recv_line() {
         // Read more data
         data_begin = begin(buffer);
         int n = ::recv(sockfd, data_begin, buffer_size, 0);
+        if (n == 0) throw http::premature_close("Socket closed while receiving line data");
+        http::check_error(n);
         BOOST_LOG_TRIVIAL(info) << "        recv'd " << n << " from fd #" << sockfd;
-        errmaybe(n); //TODO: deal with 104 (connection reset by peer)
-        if(n == 0) {
-            return std::nullopt;
-        }
         data_end = data_begin + n;
         // Search for newline again
         line_end = std::search(data_begin, data_end, begin(crlf), end(crlf));
@@ -53,7 +50,7 @@ void http::session::send_all(const unsigned char* start, ssize_t size) {
     while(size > 0) {
         ssize_t sent = ::send(sockfd, start, size, 0);
         BOOST_LOG_TRIVIAL(info) << "        sent " << sent << " from fd #" << sockfd;
-        errmaybe(sent);
+        http::check_error(sent);
         size -= sent;
     }
     BOOST_LOG_TRIVIAL(info) << "        fd #" << sockfd << " finished sending this chunk";
@@ -61,12 +58,8 @@ void http::session::send_all(const unsigned char* start, ssize_t size) {
 
 // Receives a request from the client, or returns empty if 
 // the socket has been orderly shutdown.
-std::optional<http::request> http::session::recv_request() {
-    std::optional<std::string> maybe_reqln = recv_line();
-    if(!maybe_reqln) {
-        return std::nullopt;
-    }
-    const std::string& reqln = *maybe_reqln;
+http::request http::session::recv_request() {
+    const std::string reqln = recv_line();
     auto reqln_end = end(reqln);
     auto method_start = begin(reqln);
     auto method_end = std::find(method_start, reqln_end, ' ');
@@ -84,7 +77,7 @@ std::optional<http::request> http::session::recv_request() {
     }
 
     std::unordered_map<std::string, std::string> headers;
-    for(std::string headerline = recv_line().value(); !headerline.empty(); headerline = recv_line().value()) {
+    for(std::string headerline = recv_line(); !headerline.empty(); headerline = recv_line()) {
         auto key_start = headerline.begin();
         auto key_end = std::find(headerline.begin(), headerline.end(), header_kv_delim);
         auto value_start = key_end + 1;
@@ -94,12 +87,12 @@ std::optional<http::request> http::session::recv_request() {
                         std::forward_as_tuple(value_start, value_end));
     }
     
-    return {{
+    return {
         {method_start, method_end},
         {req_uri_start, req_uri_end},
         {version_start, version_end},
         headers
-    }};
+    };
 }
 
 void http::session::send_response(http::response r) {
@@ -120,26 +113,19 @@ void http::session::send_response(http::response r) {
 http::response handle_request(http::request req);
 // HTTP "Main Loop"
 void http::session::operator()(int fd) {
-    using std::begin;
-    using std::end;
-    // "constructor"
     sockfd = fd;
-    data_begin = begin(buffer);
+    BOOST_SCOPE_EXIT(&sockfd) {
+        ::shutdown(sockfd, SHUT_RDWR);
+        ::close(sockfd);
+        BOOST_LOG_TRIVIAL(info) << "        closed fd #" << sockfd;
+    } BOOST_SCOPE_EXIT_END
+    data_begin = buffer.begin();
     data_end = data_begin;
-    // end "constructor"
-
     BOOST_LOG_TRIVIAL(info) << "Handling new client";
     try {
         bool keep_alive = true;
         do {
-            std::optional<http::request> maybe_req = recv_request();
-            if(!maybe_req) {
-                ::shutdown(sockfd, SHUT_RDWR);
-                ::close(sockfd);
-                BOOST_LOG_TRIVIAL(info) << "        closed fd #" << sockfd;
-                return;
-            }
-            http::request& req = *maybe_req;
+            http::request req = recv_request();
             keep_alive = req.headers["Connection"] != "close";
             BOOST_LOG_TRIVIAL(info) << req.method << " " << req.uri << " " << req.version   ;
             for(auto pair : req.headers) {
@@ -152,8 +138,14 @@ void http::session::operator()(int fd) {
     } catch (const http::response& err) {
         send_response(err);
         BOOST_LOG_TRIVIAL(error) << "Something went wrong: " << err.code;
+    } catch (const http::premature_close& err) {
+        BOOST_LOG_TRIVIAL(error) << "Client stopped sending prematurely";
     } catch (const std::system_error& err) {
-        BOOST_LOG_TRIVIAL(error) << "System error " << err.code() << ": " << err.what();
+        if(err.code().value() == EAGAIN) {
+            BOOST_LOG_TRIVIAL(error) << "Read or write timed out";
+        } else {
+            BOOST_LOG_TRIVIAL(error) << "System error " << err.code() << ": " << err.what();
+        }
     } catch (const std::exception& err) {
         BOOST_LOG_TRIVIAL(error) << "Something went badly wrong: " << err.what();
     } catch (...) {

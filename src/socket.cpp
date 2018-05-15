@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <iterator>
 #include <boost/log/trivial.hpp>
-void errmaybe(int);
+#include <http/error.hpp>
 
 http::socket::socket(int connected) : sockfd(connected), buffer{0}, data_begin(begin(buffer)), data_end(data_begin) {
 };
@@ -21,7 +21,7 @@ std::optional<std::string> http::socket::recvline() {
         // Read more data
         data_begin = begin(buffer);
         int n = ::recv(sockfd, data_begin, buffer_size, 0);
-        errmaybe(n);
+        http::check_error(n);
         if(n == 0) {
             return std::nullopt;
         }
@@ -38,7 +38,7 @@ std::optional<std::string> http::socket::recvline() {
 void http::socket::send_all(const unsigned char* start, ssize_t size) {
     while(size > 0) {
         ssize_t sent = ::send(sockfd, start, size, 0);
-        errmaybe(sent);
+        http::check_error(sent);
         size -= sent;
     }
 }
