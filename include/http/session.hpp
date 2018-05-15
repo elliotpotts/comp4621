@@ -6,6 +6,7 @@
 #include <http/request.hpp>
 #include <http/response.hpp>
 namespace http {
+    // Represents a http session
     class session {
         static const int buffer_size = 2048;
         using byte_buf = std::array<char, buffer_size>;
