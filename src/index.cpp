@@ -19,24 +19,17 @@ std::string get_content_type(fs::path path) {
     else if (e == ".woff")  return "font/woff";
     else if (e == ".woff2") return "font/woff2";
     else if (e == ".webm")  return "video/webm";
+    else if (e == ".pptx")  return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     else return "text/plain";
 }
 
-std::string get_icon(fs::path path) {
-    auto e = path.extension();
-    if      (e == ".css" || e == ".html" || e == ".json" || e == ".cpp") return "icon-file-code";
-    else if (e == ".webm")  return "icon-file-video";
-    else if (e == ".pdf")   return "icon-file-pdf";
-    else if (e == ".png" || e == ".jpg") return "icon-file-image";
-    else if (e == ".txt") return "icon-doc-text";
-    else return "icon-doc";
-}
-
 http::response http::serve_file(fs::path p, std::fstream& stream) {
-    return {200, "OK", get_content_type(p), {
-        std::istreambuf_iterator<char>{stream},
-        std::istreambuf_iterator<char>{}
-    }};
+    return {
+        200, "OK",
+        {{"Content-Type", get_content_type(p)}},
+        {std::istreambuf_iterator<char>{stream},
+         std::istreambuf_iterator<char>{}}
+    };
 }
 
 void write_file(std::string path, std::stringstream& to) {
@@ -48,8 +41,7 @@ void write_file(std::string path, std::stringstream& to) {
     );
 }
 
-static const std::string index_template = R"EOS(
-<!DOCTYPE html>
+static const std::string index_template = R"EOS(<!DOCTYPE html>
 <html>
     <head>
         <title>Index of {0}</title>
@@ -65,10 +57,12 @@ static const std::string index_template = R"EOS(
         <h1>Index of {0}</h1>
         <table>
             <thead>
-                <th>Name</th>
-                <th>Last Modified</th>
-                <th>Size</th>
-                <th>Type</th>
+                <tr>
+                    <th>Name</th>
+                    <th>Last Modified</th>
+                    <th>Size</th>
+                    <th>Type</th>
+                </tr>
             </thead>
             <tbody>
             {1}
@@ -116,13 +110,13 @@ http::response http::serve_index(fs::path requested_path, fs::path mapped_path) 
         rows << format_row(entry);
     }
     return {
-        200, "OK", "text/html; charset=utf-8",
+        200, "OK",
+        {{"Content-Type", "text/html; charset=utf-8"}},
         fmt::format(index_template, requested_path.string(), rows.str())
     };
 }
 
-static const std::string error_404_template = R"EOS(
-<!DOCTYPE html>
+static const std::string error_404_template = R"EOS(<!DOCTYPE html>
 <html>
     <head>
         <title>404</title>
@@ -139,7 +133,8 @@ static const std::string error_404_template = R"EOS(
 
 http::response http::serve_404(fs::path requested_path) {
     return {
-        404, "File Not Found", "text/html; charset=utf-8",
+        404, "File Not Found",
+        {{"Content-Type", "text/html; charset=utf-8"}},
         fmt::format(error_404_template, requested_path.string())
     };
 }

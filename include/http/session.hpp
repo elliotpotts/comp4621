@@ -15,10 +15,19 @@ namespace http {
         byte_buf::iterator data_begin;
         byte_buf::iterator data_end;
 
+        http::request current_request;
+
         std::string recv_line();
         request recv_request();
         void send_all(const unsigned char* start, ssize_t size);
+        void transfer_id(http::response);
+        void transfer_chunked(http::response, std::size_t chunk_size = 12);
+        http::response encode_id(http::response);
+        http::response encode_gzip(http::response);
+
+        protected:
         void send_response(http::response);
+        void handle_request(http::request);
 
         public:
         void operator()(int sockfd);

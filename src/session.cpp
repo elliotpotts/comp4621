@@ -13,6 +13,10 @@
 #include <boost/system/error_code.hpp>
 #include <boost/scope_exit.hpp>
 #include <http/error.hpp>
+#include <ios>
+#include <zlib.h>
+#include <fmt/format.h>
+#include <boost/crc.hpp>
 
 static const std::string crlf = "\r\n";
 static auto crlf_begin = crlf.begin();
@@ -21,8 +25,6 @@ static auto crlf_end = crlf.end();
 static const char header_kv_delim = ':';
 static const std::string http11 = "HTTP/1.1";
 
-// Receives a line from the client, or returns empty if 
-// the socket has been orderly shutdown.
 std::string http::session::recv_line() {
     std::ostringstream line;
     auto line_end = std::search(data_begin, data_end, crlf_begin, crlf_end);
@@ -47,33 +49,32 @@ std::string http::session::recv_line() {
 }
 
 void http::session::send_all(const unsigned char* start, ssize_t size) {
-    while(size > 0) {
-        ssize_t sent = ::send(sockfd, start, size, 0);
+    ssize_t unsent = size;
+    while(unsent > 0) {
+        ssize_t sent = ::send(sockfd, start, unsent, 0);
         BOOST_LOG_TRIVIAL(info) << "        sent " << sent << " from fd #" << sockfd;
         http::check_error(sent);
-        size -= sent;
+        unsent -= sent;
     }
-    BOOST_LOG_TRIVIAL(info) << "        fd #" << sockfd << " finished sending this chunk";
+    BOOST_LOG_TRIVIAL(info) << "        fd #" << sockfd << " finished sending " << size;
 }
 
-// Receives a request from the client, or returns empty if 
-// the socket has been orderly shutdown.
 http::request http::session::recv_request() {
     const std::string reqln = recv_line();
     auto reqln_end = end(reqln);
     auto method_start = begin(reqln);
     auto method_end = std::find(method_start, reqln_end, ' ');
     std::string method = {method_start, method_end};
-    if(method_end == reqln_end) throw http::response{404};
+    if(method_end == reqln_end) throw http::response{400};
 
     auto req_uri_start = method_end + 1;
     auto req_uri_end = std::find(req_uri_start, reqln_end, ' ');
-    if(req_uri_end == reqln_end) throw http::response{404};
+    if(req_uri_end == reqln_end) throw http::response{400};
 
     auto version_start = req_uri_end + 1;
     auto version_end = reqln_end;
     if(!std::equal(version_start, version_end, begin(http11), end(http11))) {
-        throw http::response{501};
+        throw http::response{505};
     }
 
     std::unordered_map<std::string, std::string> headers;
@@ -95,11 +96,13 @@ http::request http::session::recv_request() {
     };
 }
 
-void http::session::send_response(http::response r) {
+void http::session::transfer_id(http::response r) {
+    r.headers["Content-Length"] = fmt::format("{}", r.body.size());
     std::ostringstream sstr;
     sstr << "HTTP/1.1 " << r.code << " " << r.reason << "\r\n";
-    sstr << "Content-Type: " << r.content_type << "\r\n";
-    sstr << "Content-Length:" << r.body.size() << "\r\n";
+    for(auto [header, val] : r.headers) {
+        sstr << header << ": " << val << "\r\n";
+    }
     sstr << "\r\n";
     sstr << r.body;
     std::string bytes = sstr.str();
@@ -107,11 +110,96 @@ void http::session::send_response(http::response r) {
         reinterpret_cast<const unsigned char*>(bytes.data()),
         static_cast<ssize_t>(bytes.size())
     );
+}
+
+void http::session::transfer_chunked(http::response r, std::size_t chunk_size) {
+    r.headers["Transfer-Encoding"] = "chunked";
+    std::ostringstream sstr;
+    sstr << "HTTP/1.1 " << r.code << " " << r.reason << "\r\n";
+    for(auto [header, val] : r.headers) {
+        sstr << header << ": " << val << "\r\n";
+    }
+    sstr << "\r\n";
+    sstr << std::hex;
+    const int total_chunks = r.body.size() / chunk_size + (r.body.size() % chunk_size != 0);
+    const char* begin = r.body.data();
+    for(int i = 0; i < total_chunks; i++) {
+        std::size_t this_chunk_size;
+        if(r.body.size() % chunk_size == 0 || i != total_chunks - 1) {
+            this_chunk_size = chunk_size;
+        } else {
+            this_chunk_size = r.body.size() % chunk_size;
+        }
+        sstr << this_chunk_size << "\r\n";
+        sstr << std::string_view{begin, this_chunk_size} << "\r\n";
+        begin += chunk_size;
+    }
+    BOOST_LOG_TRIVIAL(info) << "Chunked " << (begin - r.body.data()) << " bytes";
+    sstr << "0\r\n";
+    std::string bytes = sstr.str();
+    //BOOST_LOG_TRIVIAL(info) << bytes << "!!!!!!";
+    send_all(
+        reinterpret_cast<const unsigned char*>(bytes.data()),
+        static_cast<ssize_t>(bytes.size())
+    );
+}
+
+http::response http::session::encode_id(http::response x) {
+    return x;
+}
+
+constexpr const size_t gzip_header_sz = 0; //4 + 4 + 2;
+void put_gzip_header(char* where) {
+    where[0] = '\x1f';
+    where[1] = '\x8b';
+    where[2] = 8;
+    where[3] = 1; // FTEXT
+    where[4] = 0;
+    where[5] = 0;
+    where[6] = 0;
+    where[7] = 0;
+    where[8] = 2 | 4;
+    where[9] = 3;
+}
+constexpr const size_t gzip_trailer_sz = 0; //8;
+
+http::response http::session::encode_gzip(http::response x) {
+    http::response encoded = x;
+    encoded.headers["Content-Encoding"] = "gzip";
+    encoded.body.clear();
+    encoded.body.resize(
+        gzip_header_sz + ::compressBound(x.body.size()) + gzip_trailer_sz
+    );
+    //put_gzip_header(encoded.body.data());
+    ::uLong encoded_size;
+    ::compress (
+        reinterpret_cast<unsigned char*>(encoded.body.data() + gzip_header_sz),
+        &encoded_size,
+        reinterpret_cast<const unsigned char*>(x.body.data()),
+        x.body.size()
+    );
+    /*boost::crc_32_type crc_computer{};
+    crc_computer.process_bytes(x.body.data(), x.body.size());
+    *reinterpret_cast<std::uint32_t*>(encoded.body.data() + gzip_header_sz + encoded_size) = 
+        crc_computer();
+    *reinterpret_cast<std::uint32_t*>(encoded.body.data() + gzip_header_sz + encoded_size + 4) =
+        static_cast<std::uint32_t>(x.body.size());*/
+    encoded.body.resize(gzip_header_sz + encoded_size + gzip_trailer_sz);
+    return encoded;
+}
+
+void http::session::send_response(http::response response) {
+    http::response encoded;
+    if(current_request.headers["Accept-Encoding"].find("gzip") != std::string::npos) {
+        encoded = encode_gzip(response);
+    } else {
+        encoded = encode_id(response);
+    }
+    //transfer_chunked(encoded);
+    transfer_id(encoded);
     BOOST_LOG_TRIVIAL(info) << "        fd #" << sockfd << " finished sending this response";
 }
 
-http::response handle_request(http::request req);
-// HTTP "Main Loop"
 void http::session::operator()(int fd) {
     sockfd = fd;
     BOOST_SCOPE_EXIT(&sockfd) {
@@ -125,19 +213,18 @@ void http::session::operator()(int fd) {
     try {
         bool keep_alive = true;
         do {
-            http::request req = recv_request();
-            keep_alive = req.headers["Connection"] != "close";
-            BOOST_LOG_TRIVIAL(info) << req.method << " " << req.uri << " " << req.version   ;
+            current_request = recv_request();
+            http::request& req = current_request;
+            keep_alive = current_request.headers["Connection"] != "close";
+            BOOST_LOG_TRIVIAL(info) << req.method << " " << req.uri << " " << req.version;
             for(auto pair : req.headers) {
                 BOOST_LOG_TRIVIAL(info) << "    " << pair.first << ":" << pair.second;
             }
-            http::response res = handle_request(req);
+            handle_request(req);
             BOOST_LOG_TRIVIAL(info) << "---------------------------";
-            send_response(res);
         } while (keep_alive);
     } catch (const http::response& err) {
         send_response(err);
-        BOOST_LOG_TRIVIAL(error) << "Something went wrong: " << err.code;
     } catch (const http::premature_close& err) {
         BOOST_LOG_TRIVIAL(error) << "Client stopped sending prematurely";
     } catch (const std::system_error& err) {
@@ -171,7 +258,7 @@ std::optional<fs::path> chroot_map(fs::path original, fs::path root) {
     }
 }
 
-http::response handle_request(http::request req) {
+void http::session::handle_request(http::request req) {
     auto requested_path = fs::path{req.uri}.lexically_normal();
     try {        
         auto mapped_path = chroot_map(requested_path, "www");
@@ -179,19 +266,23 @@ http::response handle_request(http::request req) {
         if(mapped_path) {
             std::fstream input{*mapped_path};
             if(input.is_open()) {
-                return http::serve_file(requested_path, input);
+                send_response(http::serve_file(requested_path, input));
             } else if (fs::is_directory(*mapped_path)) {
-                return http::serve_index(requested_path, *mapped_path);
+                send_response(http::serve_index(requested_path, *mapped_path));
             } else {
-                return http::serve_404(requested_path);
+                send_response(http::serve_404(requested_path));
             }
         } else {
-            return {403, "Forbidden", "text/plain; charset=utf-8", "403 Forbidden"};
+            send_response({
+                403, "Forbidden",
+                {{"Content-Type", "text/plain; charset=utf-8"}},
+                "403 Forbidden"
+            });
         }
     } catch (const fs::filesystem_error& err) {
         if(err.code() == boost::system::errc::no_such_file_or_directory) {
             BOOST_LOG_TRIVIAL(info) << "* No such file or directory (404)";
-            return http::serve_404(requested_path);
+            send_response(http::serve_404(requested_path));
         } else {
             throw;
         }
