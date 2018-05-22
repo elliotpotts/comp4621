@@ -25,7 +25,7 @@ http::server::~server() {
 
 static void set_timeout(int fd) {
     timeval timeout;
-    timeout.tv_sec = 2;
+    timeout.tv_sec = 5;
     timeout.tv_usec = 0;
     http::check_error(::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)));
     http::check_error(::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)));

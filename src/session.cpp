@@ -139,7 +139,6 @@ void http::session::transfer_chunked(http::response r, std::size_t chunk_size) {
     BOOST_LOG_TRIVIAL(info) << "Chunked " << (begin - r.body.data()) << " bytes";
     sstr << "0\r\n\r\n";
     std::string bytes = sstr.str();
-    //BOOST_LOG_TRIVIAL(info) << bytes << "!!!!!!";
     send_all(
         reinterpret_cast<const unsigned char*>(bytes.data()),
         static_cast<ssize_t>(bytes.size())
