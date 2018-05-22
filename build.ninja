@@ -1,6 +1,6 @@
 cxxflags = -g -Wall -Werror -std=c++17 -fdiagnostics-color -DBOOST_LOG_DYN_LINK
 cxxincludes = -Iinclude
-cxxlibs = -pthread -lboost_system -lboost_log -lboost_filesystem -lfmt -lz
+cxxlibs = -pthread -lboost_system -lboost_log -lboost_filesystem -lboost_iostreams -lfmt -lz
 
 rule cxx
   command = g++-8 $cxxflags $cxxincludes -c $in -o $out

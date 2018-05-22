@@ -16,7 +16,9 @@
 #include <ios>
 #include <zlib.h>
 #include <fmt/format.h>
-#include <boost/crc.hpp>
+#include <boost/iostreams/device/back_inserter.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
 
 static const std::string crlf = "\r\n";
 static auto crlf_begin = crlf.begin();
@@ -148,43 +150,17 @@ http::response http::session::encode_id(http::response x) {
     return x;
 }
 
-constexpr const size_t gzip_header_sz = 0; //4 + 4 + 2;
-void put_gzip_header(char* where) {
-    where[0] = '\x1f';
-    where[1] = '\x8b';
-    where[2] = 8;
-    where[3] = 1; // FTEXT
-    where[4] = 0;
-    where[5] = 0;
-    where[6] = 0;
-    where[7] = 0;
-    where[8] = 2 | 4;
-    where[9] = 3;
-}
-constexpr const size_t gzip_trailer_sz = 0; //8;
-
 http::response http::session::encode_gzip(http::response x) {
+    namespace io = boost::iostreams;
     http::response encoded = x;
     encoded.headers["Content-Encoding"] = "gzip";
     encoded.body.clear();
-    encoded.body.resize(
-        gzip_header_sz + ::compressBound(x.body.size()) + gzip_trailer_sz
-    );
-    //put_gzip_header(encoded.body.data());
-    ::uLong encoded_size;
-    ::compress (
-        reinterpret_cast<unsigned char*>(encoded.body.data() + gzip_header_sz),
-        &encoded_size,
-        reinterpret_cast<const unsigned char*>(x.body.data()),
-        x.body.size()
-    );
-    /*boost::crc_32_type crc_computer{};
-    crc_computer.process_bytes(x.body.data(), x.body.size());
-    *reinterpret_cast<std::uint32_t*>(encoded.body.data() + gzip_header_sz + encoded_size) = 
-        crc_computer();
-    *reinterpret_cast<std::uint32_t*>(encoded.body.data() + gzip_header_sz + encoded_size + 4) =
-        static_cast<std::uint32_t>(x.body.size());*/
-    encoded.body.resize(gzip_header_sz + encoded_size + gzip_trailer_sz);
+    {
+        io::filtering_ostream out;
+        out.push(io::gzip_compressor{});
+        out.push(io::back_inserter(encoded.body));
+        out << x.body;
+    }
     return encoded;
 }
 

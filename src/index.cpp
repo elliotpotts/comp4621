@@ -20,7 +20,9 @@ std::string get_content_type(fs::path path) {
     else if (e == ".woff2") return "font/woff2";
     else if (e == ".webm")  return "video/webm";
     else if (e == ".pptx")  return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-    else return "text/plain";
+    else if (e == ".png")   return "image/png";
+    else if (e == ".jpeg")  return "image/jpeg";
+    else return "application/octet-stream";
 }
 
 http::response http::serve_file(fs::path p, std::fstream& stream) {
