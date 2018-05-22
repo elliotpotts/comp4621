@@ -171,8 +171,8 @@ void http::session::send_response(http::response response) {
     } else {
         encoded = encode_id(response);
     }
-    //transfer_chunked(encoded);
-    transfer_id(encoded);
+    transfer_chunked(encoded);
+    //transfer_id(encoded);
     BOOST_LOG_TRIVIAL(info) << "        fd #" << sockfd << " finished sending this response";
 }
 

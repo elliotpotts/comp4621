@@ -22,6 +22,8 @@ std::string get_content_type(fs::path path) {
     else if (e == ".pptx")  return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     else if (e == ".png")   return "image/png";
     else if (e == ".jpeg")  return "image/jpeg";
+    else if (e == ".jpg")   return "image/jpeg";
+    else if (e == ".pdf")   return "application/pdf";
     else return "application/octet-stream";
 }
 
@@ -67,6 +69,7 @@ static const std::string index_template = R"EOS(<!DOCTYPE html>
                 </tr>
             </thead>
             <tbody>
+            <tr><td><a href="..">(Parent Directory)</a></td><td></td><td></td><td>Directory</td></tr>
             {1}
             </tbody>
         </table>
