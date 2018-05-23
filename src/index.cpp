@@ -95,7 +95,7 @@ std::string format_row(fs::path path) {
         path.filename().string(),
         is_dir ? "" : last_modified_string(path),
         is_dir ? "" : std::to_string(fs::file_size(path)),
-        is_dir ? "Directory" : "Document"
+        is_dir ? "Directory" : get_content_type(path)
     );
 }
 
