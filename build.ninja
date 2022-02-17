@@ -3,10 +3,10 @@ cxxincludes = -Iinclude
 cxxlibs = -pthread -lboost_system -lboost_log -lboost_filesystem -lboost_iostreams -lfmt -lz
 
 rule cxx
-  command = g++-8 $cxxflags $cxxincludes -c $in -o $out
+  command = g++ $cxxflags $cxxincludes -c $in -o $out
 
 rule link
-  command = g++-8 $in $cxxlibs -o $out
+  command = g++ $in $cxxlibs -o $out
 
 build obj/main.o: cxx src/main.cpp
 build obj/server.o: cxx src/server.cpp

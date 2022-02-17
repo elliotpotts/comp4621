@@ -3,6 +3,7 @@
 #include <array>
 #include <optional>
 #include <sys/types.h>
+#include <string>
 namespace http {
     const std::string crlf = "\r\n";
 
